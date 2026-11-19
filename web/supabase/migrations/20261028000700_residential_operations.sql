@@ -26,6 +26,7 @@ create table if not exists public.rental_agency_members (
 );
 
 alter table public.rental_properties
+  drop constraint if exists rental_properties_agency_owner_fk,
   add constraint rental_properties_agency_owner_fk
   foreign key (agency_id, owner_id)
   references public.rental_agencies(id, owner_id)

@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { getErrorMessage } from '@/lib/errors'
+import { addSignedPostMedia, PostMediaGallery, type PostMediaItem } from '@/lib/postMedia'
 import { supabase } from '@/lib/supabase'
 
 interface Listing {
@@ -17,6 +18,7 @@ interface Listing {
   contact_phone: string
   status: 'pending' | 'approved' | 'rejected'
   created_at: string
+  media: PostMediaItem[]
 }
 
 export default function DirectoryModerationPage() {
@@ -49,9 +51,28 @@ export default function DirectoryModerationPage() {
           .select('id,department,title,category,description,county,town,contact_name,contact_phone,status,created_at')
           .order('created_at', { ascending: false }).limit(300)
         if (error) throw error
+        const rows = (data ?? []) as Omit<Listing, 'media'>[]
+        const listingIds = rows.map((listing) => listing.id)
+        const { data: mediaRows, error: mediaError } = listingIds.length
+          ? await supabase.from('public_post_media')
+            .select('id,listing_id,storage_path,media_type,mime_type,position')
+            .in('listing_id', listingIds)
+            .order('position')
+          : { data: [], error: null }
+        if (mediaError) throw mediaError
+        const signedMedia = await addSignedPostMedia((mediaRows ?? []) as PostMediaItem[])
+        const mediaByListing = new Map<string, PostMediaItem[]>()
+        for (const media of signedMedia as (PostMediaItem & { listing_id: string })[]) {
+          const current = mediaByListing.get(media.listing_id) ?? []
+          current.push(media)
+          mediaByListing.set(media.listing_id, current)
+        }
         if (active) {
           setIsAdmin(true)
-          setListings((data ?? []) as Listing[])
+          setListings(rows.map((listing) => ({
+            ...listing,
+            media: mediaByListing.get(listing.id) ?? [],
+          })))
         }
       } catch (error) {
         console.error('Could not load directory moderation queue:', error)
@@ -96,6 +117,7 @@ export default function DirectoryModerationPage() {
             : <div className="mt-6 space-y-4">{listings.map((listing) => <article key={listing.id} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-xs font-bold uppercase tracking-wide text-emerald-800">{listing.department.replaceAll('_', ' ')} · {listing.category}</p><h2 className="mt-1 text-xl font-bold">{listing.title}</h2><p className="mt-1 text-sm text-slate-600">{listing.town}, {listing.county} · {listing.contact_name} · {listing.contact_phone}</p></div><span className={`rounded-full px-3 py-1 text-xs font-bold capitalize ${listing.status === 'approved' ? 'bg-emerald-100 text-emerald-900' : listing.status === 'rejected' ? 'bg-red-100 text-red-900' : 'bg-amber-100 text-amber-900'}`}>{listing.status}</span></div>
               <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-700">{listing.description}</p>
+              <PostMediaGallery items={listing.media} />
               <div className="mt-4 flex flex-wrap gap-2">{listing.status !== 'approved' && <button type="button" disabled={busyId === listing.id} onClick={() => void moderate(listing.id, 'approved')} className="rounded-lg bg-emerald-800 px-4 py-2 text-sm font-bold text-white disabled:opacity-50">Approve</button>}{listing.status !== 'rejected' && <button type="button" disabled={busyId === listing.id} onClick={() => void moderate(listing.id, 'rejected')} className="rounded-lg bg-red-50 px-4 py-2 text-sm font-bold text-red-800 disabled:opacity-50">Reject</button>}</div>
             </article>)}</div>}
     </section>

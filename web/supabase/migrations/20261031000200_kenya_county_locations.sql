@@ -34,7 +34,7 @@ create index if not exists stalls_public_county_search_idx
   where review_status = 'approved';
 
 create index if not exists rental_properties_public_county_search_idx
-  on public.rental_properties (county, listing_type, monthly_rent)
+  on public.rental_properties (county, monthly_rent)
   where listing_status in ('available', 'available_soon')
     and verification_status = 'verified';
 

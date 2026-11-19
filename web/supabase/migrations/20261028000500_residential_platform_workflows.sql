@@ -120,6 +120,7 @@ update public.rental_properties
 set verification_status = 'pending'
 where verification_status = 'unverified';
 alter table public.rental_properties
+  drop constraint if exists rental_properties_price_by_listing_type,
   add constraint rental_properties_price_by_listing_type
   check (
     (listing_type = 'rent' and monthly_rent is not null and sale_price is null)

@@ -9,3 +9,18 @@ export function getErrorMessage(error: unknown): string {
 
   return 'An unexpected error occurred.'
 }
+
+export function getSchemaMismatchMessage(error: unknown): string | null {
+  if (
+    typeof error !== 'object' ||
+    error === null ||
+    !('code' in error) ||
+    typeof error.code !== 'string'
+  ) {
+    return null
+  }
+
+  if (!['42703', 'PGRST202', 'PGRST205'].includes(error.code)) return null
+
+  return 'The Supabase database schema is behind this app. Apply the pending migrations in web/supabase/migrations in order (see web/README.md), then reload.'
+}

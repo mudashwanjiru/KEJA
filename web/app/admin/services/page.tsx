@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { getErrorMessage } from '@/lib/errors'
 import { getHomeServiceCategoryLabel } from '@/lib/homeServices'
+import { addSignedPostMedia, PostMediaGallery, type PostMediaItem } from '@/lib/postMedia'
 import { supabase } from '@/lib/supabase'
 
 interface Provider {
@@ -18,6 +19,7 @@ interface Provider {
   service_areas: string[]
   verification_status: 'pending' | 'verified' | 'rejected' | 'suspended'
   created_at: string
+  media: PostMediaItem[]
 }
 
 interface ProviderReview {
@@ -69,8 +71,27 @@ export default function AdminServicesPage() {
         ])
         if (error) throw error
         if (reviewError) throw reviewError
+        const providerRows = (data ?? []) as Omit<Provider, 'media'>[]
+        const providerIds = providerRows.map((provider) => provider.id)
+        const { data: mediaRows, error: mediaError } = providerIds.length
+          ? await supabase.from('public_post_media')
+            .select('id,provider_id,storage_path,media_type,mime_type,position')
+            .in('provider_id', providerIds)
+            .order('position')
+          : { data: [], error: null }
+        if (mediaError) throw mediaError
+        const signedMedia = await addSignedPostMedia((mediaRows ?? []) as PostMediaItem[])
+        const mediaByProvider = new Map<string, PostMediaItem[]>()
+        for (const media of signedMedia as (PostMediaItem & { provider_id: string })[]) {
+          const current = mediaByProvider.get(media.provider_id) ?? []
+          current.push(media)
+          mediaByProvider.set(media.provider_id, current)
+        }
         if (active) {
-          setProviders((data ?? []) as Provider[])
+          setProviders(providerRows.map((provider) => ({
+            ...provider,
+            media: mediaByProvider.get(provider.id) ?? [],
+          })))
           setReviews((reviewRows ?? []) as ProviderReview[])
         }
       } catch (error) {
@@ -141,6 +162,7 @@ export default function AdminServicesPage() {
               : <div className="mt-6 space-y-4">{providers.map((provider) => <article key={provider.id} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
                 <div className="flex flex-wrap items-start justify-between gap-3"><div><p className="text-sm font-bold uppercase tracking-wide text-emerald-700">{getHomeServiceCategoryLabel(provider.category)}</p><h2 className="mt-1 text-xl font-bold">{provider.business_name}</h2><p className="mt-1 text-sm text-slate-600">{provider.town}, {provider.county} · {provider.contact_phone}</p></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-bold capitalize">{provider.verification_status}</span></div>
                 <p className="mt-4 whitespace-pre-wrap text-sm leading-6 text-slate-700">{provider.description}</p>
+                <PostMediaGallery items={provider.media} />
                 {provider.service_areas.length > 0 && <p className="mt-3 text-xs text-slate-500">Service areas: {provider.service_areas.join(', ')}</p>}
                 <p className="mt-3 text-xs text-slate-500">Account: {provider.user_id} · Submitted {new Date(provider.created_at).toLocaleDateString()}</p>
                 <div className="mt-4 flex flex-wrap gap-2">

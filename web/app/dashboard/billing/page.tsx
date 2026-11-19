@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { getErrorMessage } from '@/lib/errors'
 import { getSubscriptionErrorMessage, SUBSCRIPTION_PRICE_KES } from '@/lib/subscription'
@@ -10,6 +10,8 @@ interface PaymentStatusResponse {
   status?: 'pending' | 'paid' | 'failed'
   error?: string
   paymentId?: string
+  checkoutUrl?: string
+  message?: string
 }
 
 async function getSubscriptionExpiry(userId: string): Promise<string | null> {
@@ -31,6 +33,8 @@ export default function BillingPage() {
   const [activeUntil, setActiveUntil] = useState<string | null>(null)
   const [hasActiveSubscription, setHasActiveSubscription] = useState(false)
   const [phoneNumber, setPhoneNumber] = useState('')
+  const [checkoutEmail, setCheckoutEmail] = useState('')
+  const [paymentGateway, setPaymentGateway] = useState<'mpesa' | 'pesapal'>('mpesa')
   const [paymentId, setPaymentId] = useState<string | null>(null)
   const [paymentStatus, setPaymentStatus] = useState<'idle' | 'pending' | 'paid' | 'failed'>('idle')
   const [startingPayment, setStartingPayment] = useState(false)
@@ -53,6 +57,7 @@ export default function BillingPage() {
       const session = data.session
       setUserId(session?.user.id ?? null)
       setAccessToken(session?.access_token ?? null)
+      setCheckoutEmail(session?.user.email ?? '')
       setAuthChecking(false)
       if (!session) return
 
@@ -78,18 +83,21 @@ export default function BillingPage() {
     }
   }, [])
 
-  const checkPayment = async (id: string) => {
+  const checkPayment = useCallback(async (id: string, gateway: 'mpesa' | 'pesapal' = paymentGateway) => {
     if (!accessToken || !userId) return
 
     setCheckingPayment(true)
     setPaymentId(id)
+    setPaymentGateway(gateway)
     setPaymentStatus('pending')
-    setMessage('Waiting for M-Pesa confirmation...')
+    setMessage(gateway === 'mpesa'
+      ? 'Waiting for M-Pesa confirmation...'
+      : 'Checking Pesapal for your card or bank payment...')
     setHasError(false)
 
     try {
       for (let attempt = 0; attempt < 30; attempt += 1) {
-        const response = await fetch(`/api/payments/mpesa/status?id=${encodeURIComponent(id)}`, {
+        const response = await fetch(`/api/payments/${gateway}/status?id=${encodeURIComponent(id)}`, {
           headers: { Authorization: `Bearer ${accessToken}` },
           cache: 'no-store',
         })
@@ -106,7 +114,9 @@ export default function BillingPage() {
         }
         if (result.status === 'failed') {
           setPaymentStatus('failed')
-          setMessage('M-Pesa did not complete the payment. Check your phone and try again.')
+          setMessage(gateway === 'mpesa'
+            ? 'M-Pesa did not complete the payment. Check your phone and try again.'
+            : 'Pesapal did not complete the payment. You can try checkout again.')
           setHasError(true)
           return
         }
@@ -121,7 +131,19 @@ export default function BillingPage() {
     } finally {
       setCheckingPayment(false)
     }
-  }
+  }, [accessToken, userId, paymentGateway])
+
+  useEffect(() => {
+    if (!accessToken || !userId || typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    const returnedPaymentId = params.get('pesapal') === 'return' ? params.get('id') : null
+    if (!returnedPaymentId || !/^[0-9a-f-]{36}$/i.test(returnedPaymentId)) return
+    const timer = window.setTimeout(() => {
+      void checkPayment(returnedPaymentId, 'pesapal')
+    }, 0)
+    window.history.replaceState({}, '', window.location.pathname)
+    return () => window.clearTimeout(timer)
+  }, [accessToken, userId, checkPayment])
 
   const handleSubscribe = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -132,6 +154,29 @@ export default function BillingPage() {
     setHasError(false)
 
     try {
+      if (paymentGateway === 'pesapal') {
+        const response = await fetch('/api/payments/pesapal/start', {
+          method: 'POST',
+          headers: {
+            Authorization: `******`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ email: checkoutEmail }),
+        })
+        const result = await response.json() as PaymentStatusResponse
+        if (result.paymentId) {
+          setPaymentId(result.paymentId)
+          setPaymentGateway('pesapal')
+          setPaymentStatus('pending')
+        }
+        if (result.checkoutUrl) {
+          window.location.assign(result.checkoutUrl)
+          return
+        }
+        if (!response.ok) throw new Error(result.error || 'Could not start Pesapal checkout.')
+        throw new Error(result.error || 'Pesapal did not return a checkout link.')
+      }
+
       const response = await fetch('/api/payments/mpesa/start', {
         method: 'POST',
         headers: {
@@ -154,7 +199,7 @@ export default function BillingPage() {
       }
 
       setMessage(result.message || 'Check your phone and enter your M-Pesa PIN.')
-      if (result.paymentId) await checkPayment(result.paymentId)
+      if (result.paymentId) await checkPayment(result.paymentId, 'mpesa')
     } catch (error) {
       setMessage(getErrorMessage(error))
       setHasError(true)
@@ -212,7 +257,33 @@ export default function BillingPage() {
             <p className="mt-2 text-sm text-slate-600">Renew manually each month. Approved stall listings remain subject to review.</p>
 
             <form onSubmit={handleSubscribe} className="mt-6 space-y-4">
-              <div>
+              <fieldset className="space-y-3">
+                <legend className="mb-2 text-sm font-semibold">Choose a payment method</legend>
+                <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-white p-4">
+                  <input
+                    type="radio"
+                    name="payment-method"
+                    value="mpesa"
+                    checked={paymentGateway === 'mpesa'}
+                    onChange={() => setPaymentGateway('mpesa')}
+                    className="mt-1"
+                  />
+                  <span><span className="block font-semibold">M-Pesa prompt</span><span className="mt-1 block text-sm text-slate-600">Receive a Daraja STK prompt on your phone and enter your M-Pesa PIN.</span></span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 bg-white p-4">
+                  <input
+                    type="radio"
+                    name="payment-method"
+                    value="pesapal"
+                    checked={paymentGateway === 'pesapal'}
+                    onChange={() => setPaymentGateway('pesapal')}
+                    className="mt-1"
+                  />
+                  <span><span className="block font-semibold">Card or bank payment</span><span className="mt-1 block text-sm text-slate-600">Continue to Pesapal’s secure checkout. Available methods depend on the merchant account.</span></span>
+                </label>
+              </fieldset>
+
+              {paymentGateway === 'mpesa' ? <div>
                 <label htmlFor="mpesa-phone" className="mb-1 block text-sm font-semibold">M-Pesa phone number</label>
                 <input
                   id="mpesa-phone"
@@ -225,14 +296,27 @@ export default function BillingPage() {
                   required
                   className="w-full rounded-md border border-slate-300 bg-white px-4 py-3 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-100"
                 />
-              </div>
+              </div> : <div>
+                <label htmlFor="checkout-email" className="mb-1 block text-sm font-semibold">Email for your Pesapal receipt</label>
+                <input
+                  id="checkout-email"
+                  type="email"
+                  autoComplete="email"
+                  value={checkoutEmail}
+                  onChange={(event) => setCheckoutEmail(event.target.value)}
+                  required
+                  className="w-full rounded-md border border-slate-300 bg-white px-4 py-3 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-100"
+                />
+              </div>}
 
               <button
                 type="submit"
                 disabled={startingPayment || checkingPayment || paymentStatus === 'pending'}
                 className="rounded-md bg-green-700 px-5 py-3 font-semibold text-white hover:bg-green-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {startingPayment ? 'Starting M-Pesa...' : 'Pay with M-Pesa'}
+                {startingPayment
+                  ? paymentGateway === 'mpesa' ? 'Starting M-Pesa...' : 'Opening secure checkout...'
+                  : paymentGateway === 'mpesa' ? 'Pay with M-Pesa' : 'Continue to card / bank checkout'}
               </button>
             </form>
 

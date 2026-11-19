@@ -142,7 +142,7 @@ export default function HomesMarketplacePage() {
             rental_property_media(storage_path,media_type),
             property_nearby_services(category,name,distance_m),
             rental_property_reviews(rating)
-          `).in('listing_status', ['available', 'available_soon']).eq('verification_status', 'verified')
+          `).in('listing_status', ['available', 'available_soon', 'occupied']).eq('verification_status', 'verified')
         if (county) listingsQuery = listingsQuery.eq('county', county)
         const [{ data, error }, favoriteResult] = await Promise.all([
           listingsQuery.order('created_at', { ascending: false }).limit(200),
@@ -258,7 +258,6 @@ export default function HomesMarketplacePage() {
     const requiredCategories = parsed.requiredCategories
     return property.listing_type === listingType
       && (propertyType === 'all' || property.property_type === propertyType)
-      && property.listing_status !== 'occupied'
       && matchesQuery
       && matchesLocation
       && (!county || (property.county ?? property.location_label).toLowerCase().includes(county.toLowerCase()))
@@ -523,6 +522,9 @@ export default function HomesMarketplacePage() {
                             <div>
                               <p className="text-xs font-semibold uppercase text-blue-700">{property.property_type.replaceAll('_', ' ')}</p>
                               <h3 className="mt-1 text-lg font-bold">{property.title}</h3>
+                              <p className={`mt-1 inline-block rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${property.listing_status === 'occupied' ? 'bg-amber-100 text-amber-900' : 'bg-emerald-100 text-emerald-800'}`}>
+                                {property.listing_status === 'available' ? 'Vacant' : property.listing_status.replaceAll('_', ' ')}
+                              </p>
                               <p className="mt-1 text-sm text-slate-600">📍 {property.location_label}</p>
                               {selectedDistance !== null && (
                                 <p className="mt-1 text-xs text-slate-500">

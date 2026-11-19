@@ -110,6 +110,7 @@ export default function ResidentialLandlordDashboard() {
   const { t } = useKejaLanguage()
   const [userId, setUserId] = useState<string | null>(null)
   const [checking, setChecking] = useState(true)
+  const [hasActiveSubscription, setHasActiveSubscription] = useState(false)
   const [properties, setProperties] = useState<ManagedProperty[]>([])
   const [agencies, setAgencies] = useState<ManagedAgency[]>([])
   const [verificationRequests, setVerificationRequests] = useState<VerificationRequest[]>([])
@@ -205,7 +206,12 @@ export default function ResidentialLandlordDashboard() {
   }, [county])
 
   const loadDashboard = async (id: string) => {
-    const [{ data: propertyRows, error: propertyError }, { data: agencyRows, error: agencyError }, { data: verificationRows, error: verificationError }] = await Promise.all([
+    const [
+      { data: propertyRows, error: propertyError },
+      { data: agencyRows, error: agencyError },
+      { data: verificationRows, error: verificationError },
+      { data: subscription, error: subscriptionError },
+    ] = await Promise.all([
       supabase
       .from('rental_properties')
       .select('id,owner_id,title,listing_type,property_type,monthly_rent,sale_price,nightly_price,land_size_acres,commercial_use,location_label,county,town,building_name,unit_number,agency_id,featured_until,listing_status,verification_status,available_date,last_confirmed_at')
@@ -213,10 +219,13 @@ export default function ResidentialLandlordDashboard() {
       .order('created_at', { ascending: false }),
       supabase.from('rental_agencies').select('id,name,contact_phone').eq('owner_id', id).order('name'),
       supabase.from('platform_user_verifications').select('id,account_type,status,admin_note,created_at').eq('user_id', id).order('created_at', { ascending: false }),
+      supabase.from('subscriptions').select('active_until').eq('user_id', id).maybeSingle(),
     ])
     if (propertyError) throw propertyError
     if (agencyError) throw agencyError
     if (verificationError) throw verificationError
+    if (subscriptionError) throw subscriptionError
+    setHasActiveSubscription(Boolean(subscription?.active_until && new Date(subscription.active_until).getTime() > Date.now()))
     setAgencies((agencyRows ?? []) as ManagedAgency[])
     setVerificationRequests((verificationRows ?? []) as VerificationRequest[])
     const ownRows = (propertyRows ?? []) as ManagedProperty[]
@@ -325,6 +334,11 @@ export default function ResidentialLandlordDashboard() {
   const publishProperty = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!userId) return
+    if (!hasActiveSubscription) {
+      setMessage('An active monthly subscription is required before you can submit a property.')
+      setHasError(true)
+      return
+    }
     if (mediaFiles.length > MAX_MEDIA_FILES) {
       setMessage(`Choose no more than ${MAX_MEDIA_FILES} photos or videos.`)
       setHasError(true)
@@ -467,7 +481,7 @@ export default function ResidentialLandlordDashboard() {
         if (serviceError) throw serviceError
       }
 
-      setMessage('Property submitted for verification. It will appear in public search after admin approval.')
+      setMessage('Property submitted for verification. Once approved, it will appear publicly while your subscription is active.')
       setTitle('')
       setDescription('')
       setBuildingName('')
@@ -832,7 +846,7 @@ export default function ResidentialLandlordDashboard() {
             )}
           </section>
 
-          <form onSubmit={(event) => void publishProperty(event)} className="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
+          {hasActiveSubscription ? <form onSubmit={(event) => void publishProperty(event)} className="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
             <h2 className="text-xl font-bold">Add a property</h2>
             <div className="grid grid-cols-2 gap-3">
               <label className="text-sm font-medium">Listing type<select value={listingType} onChange={(event) => { const value = event.target.value as 'rent' | 'sale' | 'short_stay'; setListingType(value); if (value === 'short_stay' && ['land', 'commercial'].includes(propertyType)) setPropertyType('apartment') }} className="mt-1 w-full rounded-md border border-slate-300 bg-white px-3 py-2"><option value="rent">For rent / lease</option><option value="sale">For sale</option><option value="short_stay">Short stay</option></select></label>
@@ -908,7 +922,11 @@ export default function ResidentialLandlordDashboard() {
               <p className="text-xs text-amber-800">Listing-provided distances and coordinates are estimates and are not independently verified.</p>
             </section>
             <button type="submit" disabled={saving} className="w-full rounded-lg bg-blue-700 px-4 py-3 font-semibold text-white hover:bg-blue-800 disabled:opacity-50">{saving ? 'Publishing...' : 'Publish property'}</button>
-          </form>
+          </form> : <section className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-5">
+            <h2 className="text-xl font-bold">Subscribe to list properties</h2>
+            <p className="text-sm text-amber-950">An active monthly subscription is required to submit homes. After payment, your verified properties will appear automatically; if your subscription expires, your properties will no longer be publicly visible until you renew.</p>
+            <Link href="/dashboard/billing" className="inline-block rounded-lg bg-blue-700 px-4 py-2.5 font-semibold text-white hover:bg-blue-800">View subscription</Link>
+          </section>}
         </div>
 
         {pendingPromotion && <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">

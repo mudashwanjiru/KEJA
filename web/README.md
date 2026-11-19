@@ -49,8 +49,21 @@ Run these migrations in order in the Supabase SQL Editor:
 25. `supabase/migrations/20261110000000_commercial_stall_reports.sql`
 26. `supabase/migrations/20261110000100_listing_freshness_and_stall_map.sql`
 27. `supabase/migrations/20261110000200_expand_everyday_departments.sql`
+28. `supabase/migrations/20261111000000_public_property_staff_policy_access.sql`
+29. `supabase/migrations/20261111000100_public_property_review_policy_access.sql`
+30. `supabase/migrations/20261111000200_public_post_media.sql`
+31. `supabase/migrations/20261111000300_pesapal_subscription_payments.sql`
+32. `supabase/migrations/20261119000000_residential_subscription_visibility.sql`
 
-Anonymous posting is disabled. Browsing stays public, while posting requires a confirmed Supabase account and an active KES 1,000 subscription. A verified M-Pesa payment grants one month; renewals are prompted manually, not charged automatically. Stall submissions remain pending until an approved reviewer approves them. Existing stalls are moved to pending by the review migration and need an active owner subscription before they appear publicly.
+If the app reports that a database column or function is missing, the Supabase project has not been upgraded to the app's schema. Apply any pending migrations above in order in the Supabase SQL Editor, then reload the app. Do not apply only the newest migration when earlier migrations are still pending.
+
+The public property staff-policy access migration grants anonymous queries only the staff columns referenced by residential property row-level security policies. Row-level security remains enabled and has no anonymous staff-row policy, so anonymous users cannot read staff assignments.
+
+The public property review-policy access migration grants anonymous queries only the property and rating columns required for public review summaries. Row-level security still limits those rows to approved reviews.
+
+The public post media migration adds private, multi-file photo/video uploads for directory listings, service provider profiles, job posts, neighborhood places, and notices. Posts may include up to 12 JPEG, PNG, WebP, MP4, or WebM files (50 MB each). Media is shown publicly only when its associated post is approved, verified, or open. Commercial stall listings, rental properties, and vendor community updates already have their own media workflows.
+
+Anonymous posting is disabled. Browsing stays public, while posting requires a confirmed Supabase account and an active KES 1,000 subscription. A verified M-Pesa or Pesapal payment grants one month; renewals are prompted manually, not charged automatically. Stall submissions remain pending until an approved reviewer approves them. Existing stalls are moved to pending by the review migration and need an active owner subscription before they appear publicly.
 
 The commercial marketplace migration adds stall location, category, and description fields, and creates a private inquiry/application workflow. Public visitors can browse approved stalls and filter by location, category, availability, and budget. Applicants must sign in to contact a landlord. Landlords can review their listings and respond to applications at `/landlord/stalls`; inquiry contact details are visible only to the applicant and the stall owner.
 
@@ -69,6 +82,8 @@ The county saved-search migration adds a structured county filter to residential
 The commercial stall reports migration lets signed-in users report approved stall listings, with a reason and optional details. Residential and commercial listing reports are reviewed in the admin dashboard at `/admin/properties`; admins can mark open reports as reviewing, resolved, or dismissed.
 
 The listing freshness and stall map migration prompts home and stall owners to reconfirm availability every 30 days. Listings remain visible when overdue but show a freshness warning until their owner confirms them from `/landlord` or `/landlord/stalls`. It also adds optional map pins to stalls; owners can place or update a pin on OpenStreetMap in the stall dashboard. Public stall pins are rounded to two decimal places for privacy. `/homes` and the homepage stall search show interactive OpenStreetMap views for mapped results; listings without a pin remain in the list.
+
+The residential subscription visibility migration requires an active monthly subscription to submit a property. Verified homes display automatically while the owner’s subscription is active and are hidden publicly when it expires; owners and assigned agents retain management access. Occupied homes remain listed with an occupied label, but cannot receive viewing or stay requests.
 
 The specialized department request migration adds validated, private request details for health appointments, education enrollment/tutoring inquiries, transport trips and deliveries, agricultural produce/service requests, event-service bookings, and business inquiries. Healthcare requests collect appointment logistics only, not symptoms or medical records. These requests are inquiries, not confirmed bookings or payments; providers and customers must agree on availability, safety, and terms directly.
 
@@ -128,9 +143,9 @@ on conflict do nothing;
 
 Reviewers sign in at `/dashboard` and use `/admin/reviews`. Approval and public visibility are enforced by database RLS, not only the UI.
 
-## M-Pesa Server Configuration
+## Subscription Payment Server Configuration
 
-Set these server-only variables in `web/.env.local` for local development and in the deployment platform's secret environment settings for production. Never use a `NEXT_PUBLIC_` prefix for these values or commit their real values:
+Set these server-only variables in `web/.env.local` for local development and in the deployment platform's secret environment settings for production. Never use a `NEXT_PUBLIC_` prefix for these values or commit their real values. Apply all migrations above, including the Pesapal migration, before using either payment method.
 
 ```dotenv
 APP_BASE_URL=https://your-public-https-domain
@@ -143,11 +158,17 @@ MPESA_PASSKEY=your-daraja-passkey
 MPESA_PARTY_B=your-paybill-or-till-number
 MPESA_TRANSACTION_TYPE=CustomerPayBillOnline
 MPESA_CALLBACK_TOKEN=generate-at-least-32-random-characters
+PESAPAL_ENVIRONMENT=sandbox
+PESAPAL_CONSUMER_KEY=your-pesapal-consumer-key
+PESAPAL_CONSUMER_SECRET=your-pesapal-consumer-secret
+PESAPAL_IPN_TOKEN=generate-at-least-32-random-characters
 ```
 
 Use the Safaricom Daraja sandbox first. For PayBill, use `CustomerPayBillOnline`; for Till, use `CustomerBuyGoodsOnline` and set `MPESA_PARTY_B` to the Till number. The callback URL is `${APP_BASE_URL}/api/payments/mpesa/callback?token=...` and must be publicly reachable over HTTPS. Configure the matching callback/redirect settings with Safaricom and Supabase. Do not enable production payments until sandbox callbacks, duplicate callbacks, cancelled payments, and mismatched amounts have been verified.
 
-The server verifies the transaction with Daraja before activating a subscription. Public clients cannot write payment or subscription records. Add CAPTCHA and edge rate limiting before opening account registration broadly; the payment route currently limits attempts per account.
+Use Pesapal's sandbox credentials and set `PESAPAL_ENVIRONMENT=sandbox` for testing; use production credentials and `PESAPAL_ENVIRONMENT=production` only after successful sandbox tests. `APP_BASE_URL` must be your public HTTPS origin. The app registers the IPN URL `${APP_BASE_URL}/api/payments/pesapal/ipn?token=...` with Pesapal. Enable the card and bank methods you intend to accept in your Pesapal merchant account; availability is controlled by Pesapal. Customers enter payment details only on Pesapal's hosted checkout, and the app verifies the transaction with Pesapal before applying a subscription. Do not enable production payments until you have tested successful, failed, cancelled, duplicate, and mismatched-amount notifications.
+
+The server verifies M-Pesa transactions with Daraja and card/bank transactions with Pesapal before activating a subscription. Public clients cannot write payment or subscription records. Add CAPTCHA and edge rate limiting before opening account registration broadly; the payment routes currently limit attempts per account.
 
 ## Vendor Community
 

@@ -1,4 +1,5 @@
 /.env.local
+/web/.env.local
 /node_modules/
 /web/supabase/.temp/
 /web/web/node_modules/

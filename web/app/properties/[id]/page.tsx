@@ -322,7 +322,9 @@ function RentalPropertyPageContent() {
     )
   }
 
-  const statusLabel = property.listing_status.replaceAll('_', ' ')
+  const statusLabel = property.listing_status === 'available'
+    ? 'Vacant'
+    : property.listing_status.replaceAll('_', ' ')
   const waUrl = property.contact_phone ? getWhatsAppUrl(property.contact_phone) : null
   const serviceCategories = Array.from(new Set(property.property_nearby_services.map((service) => service.category)))
     .concat(Array.from(new Set(liveServices.map((service) => service.category))))
@@ -640,7 +642,8 @@ function RentalPropertyPageContent() {
               </button>
             </section>
 
-            {property.listing_type === 'short_stay' ? <form onSubmit={(event) => void handleStayBooking(event)} className="space-y-3 rounded-xl border border-slate-200 bg-white p-5">
+            {property.listing_status === 'occupied' ? <p className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm font-medium text-amber-950">This property is marked occupied and is not currently available for viewings or stay requests.</p>
+              : property.listing_type === 'short_stay' ? <form onSubmit={(event) => void handleStayBooking(event)} className="space-y-3 rounded-xl border border-slate-200 bg-white p-5">
               <h2 className="text-lg font-bold">Request stay dates</h2>
               <p className="text-xs leading-5 text-slate-600">{property.booking_policy} Minimum {property.minimum_stay_nights} night{property.minimum_stay_nights === 1 ? '' : 's'}{property.maximum_stay_nights ? `; maximum ${property.maximum_stay_nights} nights` : ''}. MTAA does not collect booking payments.</p>
               <div className="grid grid-cols-2 gap-3"><label className="text-sm font-medium">Check-in<input type="date" required min={new Date().toISOString().slice(0, 10)} value={checkIn} onChange={(event) => setCheckIn(event.target.value)} className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2" /></label><label className="text-sm font-medium">Check-out<input type="date" required min={checkIn || new Date().toISOString().slice(0, 10)} value={checkOut} onChange={(event) => setCheckOut(event.target.value)} className="mt-1 block w-full rounded-md border border-slate-300 px-3 py-2" /></label></div>

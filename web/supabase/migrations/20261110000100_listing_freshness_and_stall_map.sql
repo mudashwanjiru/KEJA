@@ -9,6 +9,11 @@ alter table public.rental_properties
   alter column last_confirmed_at set default now(),
   alter column last_confirmed_at set not null;
 
+grant select (last_confirmed_at) on public.rental_properties to anon, authenticated;
+
+alter table public.stalls
+  add column if not exists created_at timestamptz not null default now();
+
 alter table public.stalls
   add column if not exists latitude double precision
     check (latitude is null or latitude between -90 and 90),
@@ -25,6 +30,7 @@ alter table public.stalls
   alter column last_confirmed_at set not null;
 
 grant insert (latitude, longitude) on public.stalls to authenticated;
+grant select (last_confirmed_at) on public.stalls to anon, authenticated;
 revoke select (latitude, longitude) on public.stalls from anon, authenticated;
 
 create or replace function public.set_commercial_stall_map_point(

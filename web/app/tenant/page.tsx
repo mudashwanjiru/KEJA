@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
-import { getErrorMessage } from '@/lib/errors'
+import { getErrorMessage, getSchemaMismatchMessage } from '@/lib/errors'
 import { supabase } from '@/lib/supabase'
 
 interface Tenancy {
@@ -66,7 +66,7 @@ export default function TenantWorkspace() {
         await load(data.user.id)
       } catch (error) {
         if (active) {
-          setMessage(getErrorMessage(error))
+          setMessage(getSchemaMismatchMessage(error) ?? getErrorMessage(error))
           setHasError(true)
         }
       } finally {
@@ -97,7 +97,7 @@ export default function TenantWorkspace() {
       setMessage('Maintenance request sent to your property owner.')
       await load(userId)
     } catch (error) {
-      setMessage(getErrorMessage(error))
+      setMessage(getSchemaMismatchMessage(error) ?? getErrorMessage(error))
       setHasError(true)
     } finally {
       setSaving(false)

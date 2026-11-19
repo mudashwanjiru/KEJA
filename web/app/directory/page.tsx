@@ -4,9 +4,17 @@ import Link from 'next/link'
 import { Suspense, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import type { User } from '@supabase/supabase-js'
-import { getErrorMessage } from '@/lib/errors'
+import { getErrorMessage, getSchemaMismatchMessage } from '@/lib/errors'
 import { KENYA_COUNTIES } from '@/lib/kenyaLocations'
 import { useKejaLanguage } from '@/lib/language'
+import {
+  addSignedPostMedia,
+  getPostMediaValidationError,
+  PostMediaGallery,
+  PostMediaPicker,
+  uploadPostMedia,
+  type PostMediaItem,
+} from '@/lib/postMedia'
 import { supabase } from '@/lib/supabase'
 import { addCommerceCartItem, type CommerceDepartment, useCommerceCart } from '@/lib/commerceCart'
 
@@ -92,6 +100,7 @@ interface DirectoryListing {
   website_url: string | null
   status: 'pending' | 'approved' | 'rejected'
   created_at: string
+  media: PostMediaItem[]
 }
 
 function DirectoryContent() {
@@ -123,6 +132,7 @@ function DirectoryContent() {
   const [priceUnit, setPriceUnit] = useState('')
   const [websiteUrl, setWebsiteUrl] = useState('')
   const [stockQuantity, setStockQuantity] = useState('')
+  const [mediaFiles, setMediaFiles] = useState<File[]>([])
   const [refreshToken, setRefreshToken] = useState(0)
   const cart = useCommerceCart()
   const [cartNotice, setCartNotice] = useState('')
@@ -157,14 +167,47 @@ function DirectoryContent() {
         if (county) request = request.eq('county', county)
         const { data, error } = await request
         if (error) throw error
+        const rows = (data ?? []) as Omit<DirectoryListing, 'media'>[]
+        const listingIds = rows.map((listing) => listing.id)
+        const { data: mediaRows, error: mediaError } = listingIds.length
+          ? await supabase.from('public_post_media')
+            .select('id,listing_id,storage_path,media_type,mime_type,position')
+            .in('listing_id', listingIds)
+            .order('position')
+          : { data: [], error: null }
+        if (mediaError) throw mediaError
+        const signedMedia = await addSignedPostMedia(
+          (mediaRows ?? []) as PostMediaItem[],
+        )
+        const mediaByListing = new Map<string, PostMediaItem[]>()
+        for (const media of signedMedia as (PostMediaItem & { listing_id: string })[]) {
+          const current = mediaByListing.get(media.listing_id) ?? []
+          current.push(media)
+          mediaByListing.set(media.listing_id, current)
+        }
         if (active) {
           setUser(authData.user)
-          setListings((data ?? []) as DirectoryListing[])
+          setListings(rows.map((listing) => ({
+            ...listing,
+            media: mediaByListing.get(listing.id) ?? [],
+          })))
         }
       } catch (error) {
-        console.error('Could not load MTAA directory listings:', error)
+        const message = getErrorMessage(error)
+        const schemaMismatchMessage = getSchemaMismatchMessage(error)
+        console.error('Could not load MTAA directory listings:', {
+          code:
+            typeof error === 'object' &&
+            error !== null &&
+            'code' in error
+              ? error.code
+              : undefined,
+          message,
+        })
         if (active) {
-          setNotice(`Could not load listings: ${getErrorMessage(error)}`)
+          setNotice(
+            schemaMismatchMessage ?? `Could not load listings: ${message}`
+          )
           setIsError(true)
         }
       } finally {
@@ -193,11 +236,18 @@ function DirectoryContent() {
       setIsError(true)
       return
     }
+    const mediaValidationError = getPostMediaValidationError(mediaFiles)
+    if (mediaValidationError) {
+      setNotice(mediaValidationError)
+      setIsError(true)
+      return
+    }
     setSaving(true)
     setNotice('')
     setIsError(false)
+    let submittedListingId: string | null = null
     try {
-      const { error } = await supabase.from('keja_directory_listings').insert({
+      const { data: listing, error } = await supabase.from('keja_directory_listings').insert({
         owner_id: user.id,
         department,
         title: title.trim(),
@@ -211,8 +261,10 @@ function DirectoryContent() {
         price_unit: priceUnit,
         ...(department === 'marketplace' && stockQuantity !== '' ? { stock_quantity: Number(stockQuantity) } : {}),
         website_url: websiteUrl.trim() || null,
-      })
+      }).select('id').single()
       if (error) throw error
+      submittedListingId = listing.id
+      await uploadPostMedia(user.id, { column: 'listing_id', id: listing.id }, mediaFiles)
       setNotice('Your listing was submitted for review. It will appear publicly after approval.')
       setTitle('')
       setCategory('')
@@ -225,11 +277,14 @@ function DirectoryContent() {
       setPriceUnit('')
       setStockQuantity('')
       setWebsiteUrl('')
+      setMediaFiles([])
       setShowForm(false)
       setRefreshToken((current) => current + 1)
     } catch (error) {
       console.error('Could not submit MTAA directory listing:', error)
-      setNotice(`Could not submit your listing: ${getErrorMessage(error)}`)
+      setNotice(submittedListingId
+        ? `Your listing was submitted, but its photos/videos could not be uploaded: ${getErrorMessage(error)}`
+        : `Could not submit your listing: ${getErrorMessage(error)}`)
       setIsError(true)
     } finally {
       setSaving(false)
@@ -408,6 +463,15 @@ function DirectoryContent() {
                 <label className="text-sm font-semibold">Website <span className="font-normal text-slate-500">(optional, HTTPS)</span><input type="url" pattern="https://.*" value={websiteUrl} onChange={(event) => setWebsiteUrl(event.target.value)} placeholder="https://example.co.ke" className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal" /></label>
                 {department === 'marketplace' && <label className="text-sm font-semibold">Stock quantity <span className="font-normal text-slate-500">(optional)</span><input type="number" min="0" max="1000000" step="1" value={stockQuantity} onChange={(event) => setStockQuantity(event.target.value)} placeholder="Leave blank for unlimited" className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal" /></label>}
                 <label className="text-sm font-semibold sm:col-span-2">Description<textarea required minLength={20} maxLength={3000} rows={4} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Describe the product, business or service, availability and any useful details." className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal" /></label>
+                <div className="sm:col-span-2">
+                  <PostMediaPicker files={mediaFiles} onChange={(files, error) => {
+                    setMediaFiles(files)
+                    if (error) {
+                      setNotice(error)
+                      setIsError(true)
+                    }
+                  }} />
+                </div>
                 <button disabled={saving} className="rounded-xl bg-emerald-800 px-5 py-3 font-bold text-white hover:bg-emerald-900 disabled:opacity-60 sm:col-span-2">{saving ? 'Submitting…' : 'Submit for review'}</button>
               </form>}
         </section>}
@@ -424,6 +488,7 @@ function DirectoryContent() {
                 <p className="mt-4 text-xs font-bold uppercase tracking-wide text-emerald-800">{listing.category}</p>
                 <h3 className="mt-1 text-xl font-bold">{listing.title}</h3>
                 <p className="mt-2 text-sm text-slate-500">{listing.town}, {listing.county}</p>
+                <PostMediaGallery items={listing.media} />
                 <p className="mt-4 line-clamp-4 flex-1 whitespace-pre-wrap text-sm leading-6 text-slate-700">{listing.description}</p>
                 {listing.price !== null && <p className="mt-4 font-bold text-emerald-900">KSh {Number(listing.price).toLocaleString('en-KE')}{listing.price_unit ? ` / ${listing.price_unit}` : ''}</p>}
                 {listing.department === 'marketplace' && listing.stock_quantity !== null && <p className="mt-1 text-xs text-slate-500">{listing.stock_quantity} in stock</p>}

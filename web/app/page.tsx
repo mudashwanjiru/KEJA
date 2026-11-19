@@ -7,6 +7,7 @@ import { KENYA_COUNTIES } from '@/lib/kenyaLocations'
 import { useKejaLanguage } from '@/lib/language'
 import KejaMap from '@/lib/KejaMap'
 import { isListingStale } from '@/lib/listingFreshness'
+import { getSchemaMismatchMessage } from '@/lib/errors'
 
 const CATEGORIES = ['Fashion & Apparel', 'Electronics', 'Food & Beverage', 'Beauty & Wellness', 'General']
 
@@ -112,6 +113,7 @@ export default function Home() {
               : String(error)
         const errorName = error instanceof Error ? error.name : 'Unknown error'
         const isNetworkError = /failed to fetch|networkerror|load failed|fetch failed/i.test(message)
+        const schemaMismatchMessage = getSchemaMismatchMessage(error)
 
         if (!isNetworkError) {
           console.error(`Error fetching stalls (${errorName}): ${message}`, error)
@@ -120,7 +122,7 @@ export default function Home() {
           setErrorMsg(
             isNetworkError
               ? 'Cannot connect to Supabase. Confirm the project is active and the Project URL and publishable key in web/.env.local match Project Settings → API.'
-              : `Could not load spaces: ${message}`
+              : schemaMismatchMessage ?? `Could not load spaces: ${message}`
           )
         }
       } finally {

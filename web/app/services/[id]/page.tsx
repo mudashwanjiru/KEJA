@@ -7,6 +7,7 @@ import type { User } from '@supabase/supabase-js'
 import { getErrorMessage } from '@/lib/errors'
 import { getHomeServiceCategoryLabel } from '@/lib/homeServices'
 import { KENYA_COUNTIES } from '@/lib/kenyaLocations'
+import { addSignedPostMedia, PostMediaGallery, type PostMediaItem } from '@/lib/postMedia'
 import { supabase } from '@/lib/supabase'
 
 interface Provider {
@@ -20,6 +21,7 @@ interface Provider {
   service_areas: string[]
   starting_price: number | null
   years_experience: number
+  media: PostMediaItem[]
 }
 
 interface ProviderReview {
@@ -85,8 +87,16 @@ function ServiceProviderDetail() {
         if (error) throw error
         if (authError) throw authError
         if (reviewError) throw reviewError
+        const { data: mediaRows, error: mediaError } = data
+          ? await supabase.from('public_post_media')
+            .select('id,provider_id,storage_path,media_type,mime_type,position')
+            .eq('provider_id', data.id)
+            .order('position')
+          : { data: [], error: null }
+        if (mediaError) throw mediaError
+        const signedMedia = await addSignedPostMedia((mediaRows ?? []) as PostMediaItem[])
         if (active) {
-          setProvider(data as Provider | null)
+          setProvider(data ? { ...data, media: signedMedia } as Provider : null)
           setUser(authData.user)
           setReviews((reviewRows ?? []) as ProviderReview[])
         }
@@ -220,6 +230,7 @@ function ServiceProviderDetail() {
                 <p className="mt-5 text-sm font-bold uppercase tracking-wider text-emerald-700">{getHomeServiceCategoryLabel(provider.category)}</p>
                 <h1 className="mt-1 text-3xl font-extrabold sm:text-4xl">{provider.business_name}</h1>
                 <p className="mt-3 text-slate-600">{provider.town}, {provider.county}</p>
+                <PostMediaGallery items={provider.media} />
                 <p className="mt-6 whitespace-pre-wrap leading-7 text-slate-700">{provider.description}</p>
                 <dl className="mt-7 grid gap-4 border-t border-slate-100 pt-5 sm:grid-cols-2">
                   <div><dt className="text-sm text-slate-500">Experience</dt><dd className="mt-1 font-semibold">{provider.years_experience} years</dd></div>

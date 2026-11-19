@@ -57,7 +57,7 @@ function SearchContent() {
         let propertyQuery = supabase.from('rental_properties')
           .select('id,title,description,property_type,listing_type,monthly_rent,sale_price,nightly_price,location_label,county,town,ward,bedrooms,listing_status,verification_status')
           .eq('verification_status', 'verified')
-          .in('listing_status', ['available', 'available_soon'])
+          .in('listing_status', ['available', 'available_soon', 'occupied'])
           .or(`title.ilike.${pattern},description.ilike.${pattern},location_label.ilike.${pattern},town.ilike.${pattern},ward.ilike.${pattern},county.ilike.${pattern}`)
           .limit(40)
         let spaceQuery = supabase.from('stalls')
@@ -106,7 +106,7 @@ function SearchContent() {
           description: property.description,
           location: [property.location_label, property.ward, property.town, property.county].filter(Boolean).join(', '),
           href: `/properties/${property.id}`,
-          category: `${property.property_type} · ${property.listing_type.replace('_', ' ')}`,
+          category: `${property.property_type} · ${property.listing_type.replace('_', ' ')} · ${property.listing_status === 'available' ? 'vacant' : property.listing_status.replaceAll('_', ' ')}`,
           price: property.listing_type === 'sale'
             ? property.sale_price === null ? null : `KSh ${Number(property.sale_price).toLocaleString('en-KE')}`
             : property.listing_type === 'short_stay'

@@ -3,8 +3,10 @@
 import Link from 'next/link'
 import { useEffect, useState } from 'react'
 import { getErrorMessage } from '@/lib/errors'
+import { getSchemaMismatchMessage } from '@/lib/errors'
 import { getHomeServiceCategoryLabel, HOME_SERVICE_CATEGORIES } from '@/lib/homeServices'
 import { KENYA_COUNTIES } from '@/lib/kenyaLocations'
+import { addSignedPostMedia, PostMediaGallery, type PostMediaItem } from '@/lib/postMedia'
 import { supabase } from '@/lib/supabase'
 
 interface Provider {
@@ -18,6 +20,7 @@ interface Provider {
   starting_price: number | null
   years_experience: number
   verification_status: string
+  media: PostMediaItem[]
 }
 
 export default function HomeServicesPage() {
@@ -41,10 +44,44 @@ export default function HomeServicesPage() {
         if (county) query = query.eq('county', county)
         const { data, error: queryError } = await query.order('business_name').limit(200)
         if (queryError) throw queryError
-        if (active) setProviders((data ?? []) as Provider[])
+        const rows = (data ?? []) as Omit<Provider, 'media'>[]
+        const providerIds = rows.map((provider) => provider.id)
+        const { data: mediaRows, error: mediaError } = providerIds.length
+          ? await supabase.from('public_post_media')
+            .select('id,provider_id,storage_path,media_type,mime_type,position')
+            .in('provider_id', providerIds)
+            .order('position')
+          : { data: [], error: null }
+        if (mediaError) throw mediaError
+        const signedMedia = await addSignedPostMedia((mediaRows ?? []) as PostMediaItem[])
+        const mediaByProvider = new Map<string, PostMediaItem[]>()
+        for (const media of signedMedia as (PostMediaItem & { provider_id: string })[]) {
+          const current = mediaByProvider.get(media.provider_id) ?? []
+          current.push(media)
+          mediaByProvider.set(media.provider_id, current)
+        }
+        if (active) setProviders(rows.map((provider) => ({
+          ...provider,
+          media: mediaByProvider.get(provider.id) ?? [],
+        })))
       } catch (loadError) {
-        console.error('Could not load home service providers:', loadError)
-        if (active) setError(`Could not load providers: ${getErrorMessage(loadError)}`)
+        const message = getErrorMessage(loadError)
+        const schemaMismatchMessage = getSchemaMismatchMessage(loadError)
+
+        console.error('Could not load home service providers:', {
+          code:
+            typeof loadError === 'object' &&
+            loadError !== null &&
+            'code' in loadError
+              ? loadError.code
+              : undefined,
+          message,
+        })
+        if (active) {
+          setError(
+            schemaMismatchMessage ?? `Could not load providers: ${message}`
+          )
+        }
       } finally {
         if (active) setLoading(false)
       }
@@ -132,6 +169,7 @@ export default function HomeServicesPage() {
                 <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-xs font-bold text-emerald-800">Verified</span>
               </div>
               <p className="mt-2 text-sm text-slate-600">{provider.town}, {provider.county}</p>
+              <PostMediaGallery items={provider.media} />
               <p className="mt-4 line-clamp-3 min-h-[4.5rem] text-sm leading-6 text-slate-700">{provider.description}</p>
               <div className="mt-4 flex flex-wrap gap-2 text-xs">
                 <span className="rounded-full bg-slate-100 px-3 py-1.5 text-slate-700">{provider.years_experience} years experience</span>

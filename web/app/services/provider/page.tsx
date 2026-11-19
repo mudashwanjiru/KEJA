@@ -6,6 +6,15 @@ import type { User } from '@supabase/supabase-js'
 import { getErrorMessage } from '@/lib/errors'
 import { HOME_SERVICE_CATEGORIES } from '@/lib/homeServices'
 import { KENYA_COUNTIES } from '@/lib/kenyaLocations'
+import {
+  addSignedPostMedia,
+  getPostMediaValidationError,
+  MAX_POST_MEDIA_FILES,
+  PostMediaGallery,
+  PostMediaPicker,
+  uploadPostMedia,
+  type PostMediaItem,
+} from '@/lib/postMedia'
 import { supabase } from '@/lib/supabase'
 
 interface ProviderProfile {
@@ -55,6 +64,8 @@ export default function ServiceProviderWorkspace() {
   const [serviceAreas, setServiceAreas] = useState('')
   const [startingPrice, setStartingPrice] = useState('')
   const [experience, setExperience] = useState('0')
+  const [mediaFiles, setMediaFiles] = useState<File[]>([])
+  const [profileMedia, setProfileMedia] = useState<PostMediaItem[]>([])
   const [notice, setNotice] = useState('')
   const [isError, setIsError] = useState(false)
 
@@ -69,6 +80,12 @@ export default function ServiceProviderWorkspace() {
       const provider = data as ProviderProfile | null
       setProfile(provider)
       if (provider) {
+        const { data: mediaRows, error: mediaError } = await supabase.from('public_post_media')
+          .select('id,provider_id,storage_path,media_type,mime_type,position')
+          .eq('provider_id', provider.id)
+          .order('position')
+        if (mediaError) throw mediaError
+        setProfileMedia(await addSignedPostMedia((mediaRows ?? []) as PostMediaItem[]))
         setBusinessName(provider.business_name)
         setCategory(provider.category)
         setDescription(provider.description)
@@ -86,6 +103,7 @@ export default function ServiceProviderWorkspace() {
         setRequests((requestRows ?? []) as ServiceRequest[])
       } else {
         setRequests([])
+        setProfileMedia([])
       }
     } catch (error) {
       console.error('Could not load service provider workspace:', error)
@@ -123,6 +141,17 @@ export default function ServiceProviderWorkspace() {
   async function saveProfile(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!user) return
+    const mediaValidationError = getPostMediaValidationError(mediaFiles)
+    if (mediaValidationError) {
+      setNotice(mediaValidationError)
+      setIsError(true)
+      return
+    }
+    if (profileMedia.length + mediaFiles.length > MAX_POST_MEDIA_FILES) {
+      setNotice(`This profile already has ${profileMedia.length} media files; choose no more than ${MAX_POST_MEDIA_FILES - profileMedia.length} additional files.`)
+      setIsError(true)
+      return
+    }
     setSaving(true)
     setNotice('')
     setIsError(false)
@@ -137,10 +166,13 @@ export default function ServiceProviderWorkspace() {
       starting_price: startingPrice ? Number(startingPrice) : null,
       years_experience: Number(experience),
     }
+    let savedProviderId = profile?.id ?? null
+    let profileSaved = false
     try {
       if (profile) {
         const { error } = await supabase.from('service_providers').update(values).eq('id', profile.id)
         if (error) throw error
+        profileSaved = true
       } else {
         const { data, error } = await supabase.from('service_providers')
           .insert({ ...values, user_id: user.id })
@@ -148,7 +180,13 @@ export default function ServiceProviderWorkspace() {
           .single()
         if (error) throw error
         if (!data) throw new Error('Provider profile was not returned after saving.')
+        savedProviderId = data.id
+        profileSaved = true
       }
+      if (savedProviderId) {
+        await uploadPostMedia(user.id, { column: 'provider_id', id: savedProviderId }, mediaFiles)
+      }
+      setMediaFiles([])
       await loadProfile(user.id)
       setNotice(profile
         ? profile.verification_status === 'verified'
@@ -157,7 +195,9 @@ export default function ServiceProviderWorkspace() {
         : 'Profile submitted for verification. It will appear publicly after approval.')
     } catch (error) {
       console.error('Could not save provider profile:', error)
-      setNotice(`Could not save your profile: ${getErrorMessage(error)}`)
+      setNotice(profileSaved
+        ? `Your profile was saved, but its photos/videos could not be uploaded: ${getErrorMessage(error)}`
+        : `Could not save your profile: ${getErrorMessage(error)}`)
       setIsError(true)
     } finally {
       setSaving(false)
@@ -220,6 +260,16 @@ export default function ServiceProviderWorkspace() {
                   <label className="text-sm font-semibold">Years of experience<input type="number" min="0" max="80" required value={experience} onChange={(event) => setExperience(event.target.value)} className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal" /></label>
                   <label className="text-sm font-semibold sm:col-span-2">Other towns / areas served (comma separated)<input value={serviceAreas} onChange={(event) => setServiceAreas(event.target.value)} placeholder="Naivasha, Gilgil, Njoro" className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal" /></label>
                   <label className="text-sm font-semibold sm:col-span-2">Describe your services<textarea required minLength={20} maxLength={3000} rows={5} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Describe the work you do, your availability, and any relevant experience." className="mt-1.5 w-full rounded-lg border border-slate-300 px-3 py-2.5 font-normal" /></label>
+                  {profileMedia.length > 0 && <div className="sm:col-span-2"><p className="mb-2 text-sm font-semibold">Current photos and videos</p><PostMediaGallery items={profileMedia} /></div>}
+                  <div className="sm:col-span-2">
+                    <PostMediaPicker files={mediaFiles} onChange={(files, error) => {
+                      setMediaFiles(files)
+                      if (error) {
+                        setNotice(error)
+                        setIsError(true)
+                      }
+                    }} />
+                  </div>
                   <button disabled={saving || loading} className="rounded-lg bg-blue-700 px-5 py-3 font-semibold text-white hover:bg-blue-800 disabled:opacity-60 sm:col-span-2">{saving ? 'Saving profile…' : profile ? 'Save profile' : 'Submit for verification'}</button>
                 </form>
               </section>
