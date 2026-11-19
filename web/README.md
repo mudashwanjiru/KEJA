@@ -85,6 +85,8 @@ The listing freshness and stall map migration prompts home and stall owners to r
 
 The residential subscription visibility migration requires an active monthly subscription to submit a property. Verified homes display automatically while the owner’s subscription is active and are hidden publicly when it expires; owners and assigned agents retain management access. Occupied homes remain listed with an occupied label, but cannot receive viewing or stay requests.
 
+Residential listings can set a map pin by clicking the map or, with browser permission, using the device's current location and adjusting the pin. Public house maps and OpenStreetMap directions use the same privacy-filtered coordinates: approximate pins are rounded, while exact pins are shown only when the owner chooses exact precision.
+
 The specialized department request migration adds validated, private request details for health appointments, education enrollment/tutoring inquiries, transport trips and deliveries, agricultural produce/service requests, event-service bookings, and business inquiries. Healthcare requests collect appointment logistics only, not symptoms or medical records. These requests are inquiries, not confirmed bookings or payments; providers and customers must agree on availability, safety, and terms directly.
 
 The workflow notifications migration creates in-app alerts for job applications and employer decisions, confirmed marketplace/food payments and fulfillment changes, property stay requests and host decisions, and home-service inquiries and provider updates. SMS/WhatsApp sends still require user consent and the configured dispatcher described above.

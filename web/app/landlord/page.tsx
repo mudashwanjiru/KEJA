@@ -1,12 +1,13 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { getErrorMessage } from '@/lib/errors'
 import { KENYA_COUNTIES } from '@/lib/kenyaLocations'
 import { isListingStale } from '@/lib/listingFreshness'
 import { useKejaLanguage } from '@/lib/language'
+import KejaMap from '@/lib/KejaMap'
 
 const MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'video/mp4', 'video/webm'])
 const MAX_FILE_SIZE = 50 * 1024 * 1024
@@ -185,6 +186,10 @@ export default function ResidentialLandlordDashboard() {
   const [verificationBusiness, setVerificationBusiness] = useState('')
   const [verificationPhone, setVerificationPhone] = useState('')
   const [verificationReference, setVerificationReference] = useState('')
+  const selectedPropertyPoint = latitude.trim() && longitude.trim()
+    && Number.isFinite(Number(latitude)) && Number.isFinite(Number(longitude))
+    ? { latitude: Number(latitude), longitude: Number(longitude) }
+    : null
 
   useEffect(() => {
     let active = true
@@ -330,6 +335,40 @@ export default function ResidentialLandlordDashboard() {
     void checkSession()
     return () => { active = false }
   }, [])
+
+  const handlePropertyMapPointSelect = useCallback((point: { latitude: number; longitude: number }) => {
+    setLatitude(point.latitude.toFixed(6))
+    setLongitude(point.longitude.toFixed(6))
+    setMessage('House pin selected. Choose whether to show an approximate or exact location publicly.')
+    setHasError(false)
+  }, [])
+
+  const useCurrentLocationForProperty = () => {
+    if (!navigator.geolocation) {
+      setMessage('This browser does not support device location.')
+      setHasError(true)
+      return
+    }
+
+    setMessage('Requesting your device location...')
+    setHasError(false)
+    navigator.geolocation.getCurrentPosition(
+      ({ coords }) => {
+        setLatitude(coords.latitude.toFixed(6))
+        setLongitude(coords.longitude.toFixed(6))
+        setMessage('Device location added as the house pin. Click the map to adjust it if the house is elsewhere.')
+      },
+      (error) => {
+        setMessage(error.code === error.PERMISSION_DENIED
+          ? 'Location permission was denied. Allow location access or select the house directly on the map.'
+          : error.code === error.POSITION_UNAVAILABLE
+            ? 'Your device location is unavailable. Select the house directly on the map.'
+            : 'Could not get your device location in time. Try again or select the house directly on the map.')
+        setHasError(true)
+      },
+      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 },
+    )
+  }
 
   const publishProperty = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -886,6 +925,22 @@ export default function ResidentialLandlordDashboard() {
               <label className="text-sm font-medium">Building / estate<input value={buildingName} onChange={(event) => setBuildingName(event.target.value)} maxLength={120} placeholder="Green View Apartments" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2" /></label>
               <label className="text-sm font-medium">Unit number<input value={unitNumber} onChange={(event) => setUnitNumber(event.target.value)} maxLength={40} placeholder="A02" className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2" /></label>
             </div>
+            <section className="space-y-3 rounded-lg border border-slate-200 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-semibold">Pin the house on the map</h3>
+                  <p className="mt-1 text-xs text-slate-600">Click the house location, or use your device location and adjust the pin. Your browser will ask permission before sharing device location.</p>
+                </div>
+                <button type="button" onClick={useCurrentLocationForProperty} className="rounded-md border border-blue-700 px-3 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-50">Use my current location</button>
+              </div>
+              <KejaMap
+                selectable
+                selectedPoint={selectedPropertyPoint}
+                onPointSelect={handlePropertyMapPointSelect}
+                className="h-72"
+              />
+              {selectedPropertyPoint && <p className="text-xs text-slate-600">Selected pin: {selectedPropertyPoint.latitude.toFixed(6)}, {selectedPropertyPoint.longitude.toFixed(6)}</p>}
+            </section>
             <div className="grid grid-cols-2 gap-3">
               <label className="text-sm font-medium">Latitude<input type="number" min="-90" max="90" step="any" value={latitude} onChange={(event) => setLatitude(event.target.value)} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2" /></label>
               <label className="text-sm font-medium">Longitude<input type="number" min="-180" max="180" step="any" value={longitude} onChange={(event) => setLongitude(event.target.value)} className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2" /></label>

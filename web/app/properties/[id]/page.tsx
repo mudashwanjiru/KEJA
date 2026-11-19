@@ -334,6 +334,9 @@ function RentalPropertyPageContent() {
   const nearbyMapUrl = mapPoint
     ? `https://www.openstreetmap.org/export/embed.html?bbox=${mapPoint.longitude - 0.02}%2C${mapPoint.latitude - 0.01}%2C${mapPoint.longitude + 0.02}%2C${mapPoint.latitude + 0.01}&layer=mapnik&marker=${mapPoint.latitude}%2C${mapPoint.longitude}`
     : null
+  const directionsUrl = mapPoint
+    ? `https://www.openstreetmap.org/directions?engine=fossgis_osrm_car&route=%3B${mapPoint.latitude}%2C${mapPoint.longitude}`
+    : null
 
   const requireSignIn = () => {
     if (userId) return true
@@ -553,6 +556,9 @@ function RentalPropertyPageContent() {
                   <p className="bg-slate-50 px-3 py-2 text-xs text-slate-600">
                     {mapPoint?.is_approximate ? 'Approximate property location' : 'Exact property pin selected by the owner'} · nearby service distances are listing-provided estimates.
                   </p>
+                  {directionsUrl && <a href={directionsUrl} target="_blank" rel="noopener noreferrer" className="inline-flex px-3 py-2 text-sm font-semibold text-blue-700 underline">
+                    Get directions to {mapPoint?.is_approximate ? 'the approximate public location' : 'this house'}
+                  </a>}
                 </div>
               )}
 
